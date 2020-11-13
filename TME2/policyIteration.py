@@ -1,58 +1,115 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Apr 20 10:30:16 2020
+import matplotlib
+import matplotlib.pyplot as plt
 
-@author: wuwen
-"""
-
-import numpy as np
+matplotlib.use("Qt5agg")
+import gym
 import gridworld
+from gym import wrappers, logger
+import numpy as np
 import copy
 
-class PolicyIteration():
-    
-    def __init__(self, action_space, statedic, mdp, eps=1e5, gamma=0.9):
+
+class PolicyIteration(object):
+    """The world's simplest agent!"""
+
+    def __init__(self, action_space, statedic, mdp, gamma=0.99, eps=0.01):
         self.statedic = statedic
         self.mdp = mdp
-        self.action_space = action_space
-        self.eps = eps
         self.gamma = gamma
-        
-    def act(self, obs, reward, done):
-        nb_s = len(self.statedic) # Nombre d'états
-        V = dict(zip(self.statedic, np.random.random(nb_s)))
-        states = [s for s in self.statedic]
-        pi = {s: None for s in states}
-        ft = True # First Time
-        i = 0
+        self.eps = eps
+        self.V = {s : np.random.random() for s in statedic.keys()}
+        self.pi = {s : np.random.randint(0, action_space.n) for s in statedic.keys()}
 
-        while ft or pi != pi_copy:
-            
-            pi_copy = copy.deepcopy(pi)
-            
-            while ft or np.linalg.norm(np.array(list(V.values())) - np.array(list(V_copy.values()))) > self.eps:
+    def fit(self):
 
-                V_copy = copy.deepcopy(V)
-                for state, dico in self.mdp.items(): # parcours de tous les états
-                    
-                    V_inter = [np.sum([p*(rew+self.gamma*V_copy[s_dest]) 
-                        for p, s_dest, rew, _ in tuples]) 
-                            for action, tuples in dico.items() ]
-          
-                    V[state] = np.sum(V_inter)
-                    
-                i += 1
-                ft = False
-        
-            for state, dico in self.mdp.items(): # parcours de tous les états
-                    
-                V_inter = [np.sum([p*(rew+self.gamma*V[s_dest]) 
-                            for p, s_dest, rew, _ in self.mdp[state][action]]) 
-                                for action, tuples in dico.items() ]
-                #print("arg : ", np.argmax(V_inter))
-                pi[state] = np.argmax(V_inter)
+        ft_V = True
+        ft_pi = True
+        c = 0
+        while ft_pi:
+            c += 1
+            pi_copy = copy.deepcopy(self.pi)
+            
+            while ft_V:
+                V_copy = copy.deepcopy(self.V)
+                
+                for state, dict2 in self.mdp.items():
     
+                    V_inter = [ np.sum([p*(rew + self.gamma*V_copy[s_dest]) 
+                        for p, s_dest, rew, _ in tuples]) 
+                            for action, tuples in dict2.items() ]
+                    
+                    self.V[state] = np.max(V_inter)
+                    
+                if np.linalg.norm(np.array(list(self.V.values())) - np.array(list(V_copy.values()))) <= self.eps:
+                    ft_V = False
+        
+            for state, dict2 in self.mdp.items():
+                
+                V_inter = [ np.sum([p*(rew + self.gamma*self.V[s_dest]) 
+                    for p, s_dest, rew, _ in tuples]) 
+                        for action, tuples in dict2.items() ]
+    
+                self.pi[state] = np.argmax(V_inter)
+                
+            if pi_copy == self.pi:
+                # print("IDEM PI : ", c)
+                ft_pi = False
+
+    def act(self, observation, reward, done):
             
-            
-        return pi[gridworld.GridworldEnv.state2str(obs)]
-            
+        return self.pi[gridworld.GridworldEnv.state2str(observation)]
+
+        
+    
+    
+
+
+if __name__ == '__main__':
+
+
+    env = gym.make("gridworld-v0")
+    env.setPlan("gridworldPlans/plan2.txt", {0: -0.001, 3: 1, 4: 1, 5: -1, 6: -1})
+
+    env.seed(0)  # Initialise le seed du pseudo-random
+    # print(env.action_space)  # Quelles sont les actions possibles
+    # print(env.step(1))  # faire action 1 et retourne l'observation, le reward, et un done un booleen (jeu fini ou pas)
+    env.render()  # permet de visualiser la grille du jeu 
+    env.render(mode="human") #visualisation sur la console
+    statedic, mdp = env.getMDP()  # recupere le mdp : statedic
+    # print("Nombre d'etats : ",len(statedic))  # nombre d'etats ,statedic : etat-> numero de l'etat
+    state, transitions = list(mdp.items())[0]
+    # print(state)  # un etat du mdp
+    # print(transitions)  # dictionnaire des transitions pour l'etat :  {action-> [proba,etat,reward,done]}
+
+    # Execution avec un Agent
+    agent = PolicyIteration(env.action_space, statedic, mdp)
+    agent.fit()
+
+    episode_count = 1000
+    reward = 0
+    done = False
+    rsum = 0
+    FPS = 0.0001
+    total_reward = []
+    
+    for i in range(episode_count):
+        obs = env.reset()
+        env.verbose = (i % 100 == 0 and i > 0)  # afficher 1 episode sur 100
+        if env.verbose:
+            env.render(FPS)
+        j = 0
+        rsum = 0
+        while True:
+            action = agent.act(obs, reward, done)
+            obs, reward, done, _ = env.step(action)
+            rsum += reward
+            j += 1
+            if env.verbose:
+                env.render(FPS)
+            if done:
+                total_reward.append(rsum)
+                print("Episode : " + str(i) + " rsum=" + str(rsum) + ", " + str(j) + " actions")
+                break
+    print("Reward moyen & std : ", np.mean(total_reward), np.std(total_reward))
+    print("done")
+    env.close()
